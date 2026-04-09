@@ -230,7 +230,6 @@ jobs:
 
   build-ios-signed:
     needs: prepare-web-bundle
-    if: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 != '' && secrets.IOS_P12_PASSWORD != '' && secrets.IOS_PROVISIONING_PROFILE_BASE64 != '' && secrets.IOS_KEYCHAIN_PASSWORD != '' && secrets.IOS_TEAM_ID != '' }}
     runs-on: macos-14
     defaults:
       run:
@@ -257,24 +256,48 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check signing secrets
+        id: check_signing
+        env:
+          IOS_BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}
+          IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          if [ -n "${IOS_BUILD_CERTIFICATE_BASE64:-}" ] && \
+             [ -n "${IOS_P12_PASSWORD:-}" ] && \
+             [ -n "${IOS_PROVISIONING_PROFILE_BASE64:-}" ] && \
+             [ -n "${IOS_KEYCHAIN_PASSWORD:-}" ] && \
+             [ -n "${IOS_TEAM_ID:-}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Signing secrets are missing. Signed IPA build will be skipped."
+          fi
+
       - name: Download prepared web bundle
+        if: steps.check_signing.outputs.ready == 'true'
         uses: actions/download-artifact@v4
         with:
           name: ios-web-bundle
           path: dist/web
 
       - name: Create Capacitor iOS project
+        if: steps.check_signing.outputs.ready == 'true'
         run: |
           if [ ! -d ios/App ]; then
             npx cap add ios
           fi
 
       - name: Sync Capacitor iOS project
+        if: steps.check_signing.outputs.ready == 'true'
         run: |
           rm -rf ios/App/App/public
           npx cap sync ios
 
       - name: Install signing assets
+        if: steps.check_signing.outputs.ready == 'true'
         run: |
           CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
           PROFILE_PATH="$RUNNER_TEMP/build_profile.mobileprovision"
@@ -294,6 +317,7 @@ jobs:
           cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
       - name: Create export options
+        if: steps.check_signing.outputs.ready == 'true'
         run: |
           mkdir -p build
           METHOD="${IOS_EXPORT_METHOD:-development}"
@@ -315,6 +339,7 @@ jobs:
           PLIST
 
       - name: Archive signed app
+        if: steps.check_signing.outputs.ready == 'true'
         run: |
           xcodebuild \
             -workspace ios/App/App.xcworkspace \
@@ -328,6 +353,7 @@ jobs:
             archive
 
       - name: Export IPA
+        if: steps.check_signing.outputs.ready == 'true'
         run: |
           xcodebuild \
             -exportArchive \
@@ -336,6 +362,7 @@ jobs:
             -exportPath build/export
 
       - name: Upload signed IPA
+        if: steps.check_signing.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ios-signed-ipa
