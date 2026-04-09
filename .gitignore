@@ -1,7 +1,7 @@
 node_modules/
 dist/
 build/
-ios/
+ios/App/App/public/
 
 save của ichibikun/
 TeachingFeeling.app/
