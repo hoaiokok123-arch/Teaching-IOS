@@ -1,0 +1,6 @@
+{
+  "appId": "com.teachingfeeling.ios",
+  "appName": "Teaching Feeling",
+  "webDir": "dist/web",
+  "bundledWebRuntime": false
+}

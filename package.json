@@ -1,0 +1,28 @@
+{
+  "name": "tf260",
+  "private": true,
+  "main": "app://./index.html",
+  "scripts": {
+    "build:ios:web": "node ./scripts/build-ios-web.mjs"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.3.0",
+    "@capacitor/core": "8.3.0",
+    "@capacitor/ios": "8.3.0"
+  },
+  "window": {
+    "title": "setting tyrano",
+    "icon": "link.png",
+    "toolbar": false,
+    "frame": true,
+    "width": 1350,
+    "height": 900,
+    "position": "mouse",
+    "min_width": 10,
+    "min_height": 10,
+    "resizable": true
+  },
+  "webkit": {
+    "plugin": true
+  }
+}

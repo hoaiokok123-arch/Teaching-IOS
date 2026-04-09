@@ -1,0 +1,338 @@
+name: build-ios
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_drive_url:
+        description: "Public Google Drive share URL for the source zip"
+        required: false
+        type: string
+      source_drive_file_id:
+        description: "1RdNwEnDl0MzDeWS6quawD7brdy_gZmsM"
+        required: false
+        type: string
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - ".github/workflows/build-ios.yml"
+      - "README.iOS.md"
+      - "capacitor.config.json"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/**"
+      - "index.html"
+      - "data/system/ios-compat.js"
+
+jobs:
+  prepare-web-bundle:
+    runs-on: ubuntu-latest
+
+    env:
+      INPUT_DRIVE_URL: ${{ github.event.inputs.source_drive_url }}
+      INPUT_DRIVE_FILE_ID: ${{ github.event.inputs.source_drive_file_id }}
+      SECRET_DRIVE_URL: ${{ secrets.GAME_SOURCE_DRIVE_URL }}
+      SECRET_DRIVE_FILE_ID: ${{ secrets.GAME_SOURCE_DRIVE_FILE_ID }}
+
+    steps:
+      - name: Checkout lightweight build repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Python for Google Drive download
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg and unzip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg unzip
+
+      - name: Install gdown
+        run: python -m pip install --upgrade pip gdown
+
+      - name: Resolve source archive location
+        run: |
+          DRIVE_URL="${INPUT_DRIVE_URL:-}"
+          DRIVE_FILE_ID="${INPUT_DRIVE_FILE_ID:-}"
+
+          if [ -z "$DRIVE_URL" ] && [ -n "${SECRET_DRIVE_URL:-}" ]; then
+            DRIVE_URL="$SECRET_DRIVE_URL"
+          fi
+
+          if [ -z "$DRIVE_FILE_ID" ] && [ -n "${SECRET_DRIVE_FILE_ID:-}" ]; then
+            DRIVE_FILE_ID="$SECRET_DRIVE_FILE_ID"
+          fi
+
+          if [ -z "$DRIVE_URL" ] && [ -z "$DRIVE_FILE_ID" ]; then
+            echo "Missing source zip location."
+            echo "Set GAME_SOURCE_DRIVE_URL or GAME_SOURCE_DRIVE_FILE_ID in repository secrets,"
+            echo "or pass source_drive_url/source_drive_file_id when running workflow_dispatch."
+            exit 1
+          fi
+
+          {
+            echo "DRIVE_URL=$DRIVE_URL"
+            echo "DRIVE_FILE_ID=$DRIVE_FILE_ID"
+            echo "SOURCE_ARCHIVE=$RUNNER_TEMP/source.zip"
+            echo "SOURCE_EXTRACT_DIR=$RUNNER_TEMP/source-extracted"
+          } >> "$GITHUB_ENV"
+
+      - name: Download source zip from Google Drive
+        run: |
+          rm -f "$SOURCE_ARCHIVE"
+
+          if [ -n "${DRIVE_FILE_ID:-}" ]; then
+            gdown --id "$DRIVE_FILE_ID" -O "$SOURCE_ARCHIVE"
+          else
+            gdown --fuzzy "$DRIVE_URL" -O "$SOURCE_ARCHIVE"
+          fi
+
+      - name: Extract source zip
+        run: |
+          rm -rf "$SOURCE_EXTRACT_DIR"
+          mkdir -p "$SOURCE_EXTRACT_DIR"
+          unzip -q "$SOURCE_ARCHIVE" -d "$SOURCE_EXTRACT_DIR"
+          rm -rf "$SOURCE_EXTRACT_DIR/__MACOSX"
+
+      - name: Resolve extracted project root
+        run: |
+          shopt -s nullglob
+          top_dirs=("$SOURCE_EXTRACT_DIR"/*/)
+          top_files=("$SOURCE_EXTRACT_DIR"/*)
+
+          if [ "${#top_dirs[@]}" -eq 1 ] && [ "${#top_files[@]}" -eq 1 ]; then
+            SOURCE_ROOT="${top_dirs[0]%/}"
+          else
+            SOURCE_ROOT="$SOURCE_EXTRACT_DIR"
+          fi
+
+          echo "SOURCE_ROOT=$SOURCE_ROOT" >> "$GITHUB_ENV"
+
+      - name: Overlay repo-managed build files
+        run: |
+          rm -rf "$SOURCE_ROOT/dist" "$SOURCE_ROOT/ios" "$SOURCE_ROOT/node_modules"
+
+          mkdir -p "$SOURCE_ROOT/scripts"
+          mkdir -p "$SOURCE_ROOT/data/system"
+
+          cp "$GITHUB_WORKSPACE/package.json" "$SOURCE_ROOT/package.json"
+          cp "$GITHUB_WORKSPACE/package-lock.json" "$SOURCE_ROOT/package-lock.json"
+          cp "$GITHUB_WORKSPACE/capacitor.config.json" "$SOURCE_ROOT/capacitor.config.json"
+          cp "$GITHUB_WORKSPACE/README.iOS.md" "$SOURCE_ROOT/README.iOS.md"
+          cp "$GITHUB_WORKSPACE/index.html" "$SOURCE_ROOT/index.html"
+          cp "$GITHUB_WORKSPACE/data/system/ios-compat.js" "$SOURCE_ROOT/data/system/ios-compat.js"
+          cp -R "$GITHUB_WORKSPACE/scripts/." "$SOURCE_ROOT/scripts/"
+
+      - name: Validate extracted project shape
+        run: |
+          test -d "$SOURCE_ROOT/data"
+          test -d "$SOURCE_ROOT/tyrano"
+          test -f "$SOURCE_ROOT/index.html"
+          test -f "$SOURCE_ROOT/package.json"
+
+      - name: Install dependencies in extracted source
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: npm ci
+
+      - name: Build iOS web bundle from extracted source
+        working-directory: ${{ env.SOURCE_ROOT }}
+        run: npm run build:ios:web
+
+      - name: Upload web bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-web-bundle
+          path: ${{ env.SOURCE_ROOT }}/dist/web
+          if-no-files-found: error
+
+      - name: Upload build report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-report
+          path: ${{ env.SOURCE_ROOT }}/dist/ios-build-report.json
+          if-no-files-found: error
+
+  build-ios-simulator:
+    needs: prepare-web-bundle
+    runs-on: macos-14
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout lightweight build repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download prepared web bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-web-bundle
+          path: dist/web
+
+      - name: Create Capacitor iOS project
+        run: |
+          if [ ! -d ios/App ]; then
+            npx cap add ios
+          fi
+
+      - name: Sync Capacitor iOS project
+        run: |
+          rm -rf ios/App/App/public
+          npx cap sync ios
+
+      - name: Build simulator app
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package simulator app
+        run: |
+          APP_PATH=$(find build/DerivedData -path "*Release-iphonesimulator/App.app" | head -n 1)
+          test -n "$APP_PATH"
+          mkdir -p build/artifacts
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" build/artifacts/TeachingFeeling-ios-simulator.zip
+
+      - name: Upload simulator artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: build/artifacts/TeachingFeeling-ios-simulator.zip
+          if-no-files-found: error
+
+  build-ios-signed:
+    needs: prepare-web-bundle
+    if: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 != '' && secrets.IOS_P12_PASSWORD != '' && secrets.IOS_PROVISIONING_PROFILE_BASE64 != '' && secrets.IOS_KEYCHAIN_PASSWORD != '' && secrets.IOS_TEAM_ID != '' }}
+    runs-on: macos-14
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      IOS_BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_BUILD_CERTIFICATE_BASE64 }}
+      IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+      IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+      IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+      IOS_EXPORT_METHOD: ${{ secrets.IOS_EXPORT_METHOD }}
+
+    steps:
+      - name: Checkout lightweight build repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download prepared web bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-web-bundle
+          path: dist/web
+
+      - name: Create Capacitor iOS project
+        run: |
+          if [ ! -d ios/App ]; then
+            npx cap add ios
+          fi
+
+      - name: Sync Capacitor iOS project
+        run: |
+          rm -rf ios/App/App/public
+          npx cap sync ios
+
+      - name: Install signing assets
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
+          PROFILE_PATH="$RUNNER_TEMP/build_profile.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+
+          echo -n "$IOS_BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          echo -n "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$IOS_P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/"
+
+      - name: Create export options
+        run: |
+          mkdir -p build
+          METHOD="${IOS_EXPORT_METHOD:-development}"
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>${METHOD}</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>teamID</key>
+            <string>${IOS_TEAM_ID}</string>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Archive signed app
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -archivePath build/App.xcarchive \
+            -destination "generic/platform=iOS" \
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            -allowProvisioningUpdates \
+            archive
+
+      - name: Export IPA
+        run: |
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/App.xcarchive \
+            -exportOptionsPlist build/ExportOptions.plist \
+            -exportPath build/export
+
+      - name: Upload signed IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-signed-ipa
+          path: build/export/*.ipa
+          if-no-files-found: error
