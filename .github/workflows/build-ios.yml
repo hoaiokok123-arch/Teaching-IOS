@@ -17,8 +17,10 @@ on:
       - master
     paths:
       - ".github/workflows/build-ios.yml"
+      - ".gitignore"
       - "README.iOS.md"
       - "capacitor.config.json"
+      - "ios/**"
       - "package.json"
       - "package-lock.json"
       - "scripts/**"
