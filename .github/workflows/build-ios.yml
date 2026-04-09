@@ -199,15 +199,15 @@ jobs:
             npx cap add ios
           fi
 
-      - name: Sync Capacitor iOS project
+      - name: Copy Capacitor web assets
         run: |
           rm -rf ios/App/App/public
-          npx cap sync ios
+          npx cap copy ios
 
       - name: Build simulator app
         run: |
           xcodebuild \
-            -workspace ios/App/App.xcworkspace \
+            -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration Release \
             -sdk iphonesimulator \
@@ -292,11 +292,11 @@ jobs:
             npx cap add ios
           fi
 
-      - name: Sync Capacitor iOS project
+      - name: Copy Capacitor web assets
         if: steps.check_signing.outputs.ready == 'true'
         run: |
           rm -rf ios/App/App/public
-          npx cap sync ios
+          npx cap copy ios
 
       - name: Install signing assets
         if: steps.check_signing.outputs.ready == 'true'
@@ -344,7 +344,7 @@ jobs:
         if: steps.check_signing.outputs.ready == 'true'
         run: |
           xcodebuild \
-            -workspace ios/App/App.xcworkspace \
+            -project ios/App/App.xcodeproj \
             -scheme App \
             -configuration Release \
             -archivePath build/App.xcarchive \
