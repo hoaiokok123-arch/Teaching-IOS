@@ -34,6 +34,7 @@ jobs:
       INPUT_DRIVE_FILE_ID: ${{ github.event.inputs.source_drive_file_id }}
       SECRET_DRIVE_URL: ${{ secrets.GAME_SOURCE_DRIVE_URL }}
       SECRET_DRIVE_FILE_ID: ${{ secrets.GAME_SOURCE_DRIVE_FILE_ID }}
+      DEFAULT_DRIVE_FILE_ID: 1RdNwEnDl0MzDeWS6quawD7brdy_gZmsM
 
     steps:
       - name: Checkout lightweight build repo
@@ -69,6 +70,10 @@ jobs:
 
           if [ -z "$DRIVE_FILE_ID" ] && [ -n "${SECRET_DRIVE_FILE_ID:-}" ]; then
             DRIVE_FILE_ID="$SECRET_DRIVE_FILE_ID"
+          fi
+
+          if [ -z "$DRIVE_URL" ] && [ -z "$DRIVE_FILE_ID" ] && [ -n "${DEFAULT_DRIVE_FILE_ID:-}" ]; then
+            DRIVE_FILE_ID="$DEFAULT_DRIVE_FILE_ID"
           fi
 
           if [ -z "$DRIVE_URL" ] && [ -z "$DRIVE_FILE_ID" ]; then
