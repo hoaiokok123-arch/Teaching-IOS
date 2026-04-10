@@ -237,6 +237,12 @@ jobs:
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee build/xcodebuild-sim.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "===== Xcodebuild tail ====="
+            tail -n 200 build/xcodebuild-sim.log || true
+          fi
+          exit "$status"
 
       - name: Package simulator app
         run: |
