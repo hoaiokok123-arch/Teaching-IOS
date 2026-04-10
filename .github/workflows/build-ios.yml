@@ -226,6 +226,8 @@ jobs:
 
       - name: Build simulator app
         run: |
+          set -euxo pipefail
+          mkdir -p build
           xcodebuild \
             -project ios/App/App.xcodeproj \
             -scheme App \
@@ -234,7 +236,7 @@ jobs:
             -destination "generic/platform=iOS Simulator" \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build 2>&1 | tee build/xcodebuild-sim.log
 
       - name: Package simulator app
         run: |
@@ -242,6 +244,14 @@ jobs:
           test -n "$APP_PATH"
           mkdir -p build/artifacts
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" build/artifacts/TeachingFeeling-ios-simulator.zip
+
+      - name: Upload simulator build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-xcodebuild-log
+          path: build/xcodebuild-sim.log
+          if-no-files-found: warn
 
       - name: Upload simulator artifact
         uses: actions/upload-artifact@v4
