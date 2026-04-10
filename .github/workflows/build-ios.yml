@@ -239,6 +239,13 @@ jobs:
             build 2>&1 | tee build/xcodebuild-sim.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
+            errors=$(grep -E "error:|BUILD FAILED|The following build commands failed" build/xcodebuild-sim.log | tail -n 40 || true)
+            if [ -n "$errors" ]; then
+              errors="${errors//'%'/'%25'}"
+              errors="${errors//$'\n'/'%0A'}"
+              errors="${errors//$'\r'/'%0D'}"
+              echo "::error title=xcodebuild failed::$errors"
+            fi
             echo "===== Xcodebuild tail ====="
             tail -n 200 build/xcodebuild-sim.log || true
           fi
