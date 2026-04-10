@@ -214,7 +214,7 @@ jobs:
           set -euxo pipefail
           rm -rf ios/App/App/public
           mkdir -p build
-          npx cap copy ios --verbose 2>&1 | tee build/ios-cap-copy.log
+          npx cap copy ios 2>&1 | tee build/ios-cap-copy.log
 
       - name: Upload cap copy log
         if: always()
@@ -318,7 +318,7 @@ jobs:
           set -euxo pipefail
           rm -rf ios/App/App/public
           mkdir -p build
-          npx cap copy ios --verbose 2>&1 | tee build/ios-cap-copy.log
+          npx cap copy ios 2>&1 | tee build/ios-cap-copy.log
 
       - name: Upload cap copy log
         if: always()
