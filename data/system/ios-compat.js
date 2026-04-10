@@ -7,6 +7,7 @@
 
   var compat = window.__TF_IOS_COMPAT || {};
 
+  compat.errorLogKey = "tf-ios-last-error";
   compat.pendingGestureCallbacks = [];
   compat.gestureListenersBound = false;
   compat.audioUnlocked = false;
@@ -26,6 +27,84 @@
 
   compat.isBrowserRuntime = function () {
     return !($.isNWJS && $.isNWJS());
+  };
+
+  compat.formatError = function (error) {
+    if (!error) {
+      return "";
+    }
+
+    if (error.stack) {
+      return error.stack;
+    }
+
+    if (error.message) {
+      return error.message;
+    }
+
+    return String(error);
+  };
+
+  compat.showFatalOverlay = function (message) {
+    var overlay;
+
+    if (!compat.isIOS()) {
+      return;
+    }
+
+    overlay = document.getElementById("tf-ios-error-overlay");
+
+    if (!overlay) {
+      overlay = document.createElement("pre");
+      overlay.id = "tf-ios-error-overlay";
+      overlay.style.position = "fixed";
+      overlay.style.left = "8px";
+      overlay.style.right = "8px";
+      overlay.style.bottom = "8px";
+      overlay.style.zIndex = "2147483647";
+      overlay.style.maxHeight = "40vh";
+      overlay.style.overflow = "auto";
+      overlay.style.padding = "10px";
+      overlay.style.margin = "0";
+      overlay.style.borderRadius = "8px";
+      overlay.style.background = "rgba(0, 0, 0, 0.85)";
+      overlay.style.color = "#fff";
+      overlay.style.font = "12px/1.4 monospace";
+      overlay.style.whiteSpace = "pre-wrap";
+      document.body.appendChild(overlay);
+    }
+
+    overlay.textContent = message;
+  };
+
+  compat.reportFatalError = function (label, error) {
+    var message = "[iOS runtime] " + label + "\n" + compat.formatError(error);
+
+    try {
+      window.localStorage.setItem(compat.errorLogKey, message);
+    } catch (_) {}
+
+    if (window.console && console.error) {
+      console.error(message);
+    }
+
+    compat.showFatalOverlay(message);
+  };
+
+  compat.installErrorCapture = function () {
+    if (compat.errorCaptureInstalled) {
+      return;
+    }
+
+    compat.errorCaptureInstalled = true;
+
+    window.addEventListener("error", function (event) {
+      compat.reportFatalError("window.error", event.error || event.message);
+    });
+
+    window.addEventListener("unhandledrejection", function (event) {
+      compat.reportFatalError("unhandledrejection", event.reason);
+    });
   };
 
   compat.normalizeAudioStorage = function (storage) {
@@ -127,6 +206,14 @@
     }
 
     return "./data/" + folderName + "/" + storage;
+  };
+
+  compat.shouldSkipStartupMovie = function (storage) {
+    if (!compat.isIOS() || !storage) {
+      return false;
+    }
+
+    return /^(logo|logo1)\.(webm|mp4)$/i.test(storage);
   };
 
   compat.deferMediaUntilGesture = function (context, retryPlayback) {
@@ -446,6 +533,11 @@
     var originalStart = movieTag.start;
 
     movieTag.start = function (pm) {
+      if (compat.shouldSkipStartupMovie(pm.storage)) {
+        this.kag.ftag.nextOrder();
+        return;
+      }
+
       if ($.userenv() !== "pc") {
         this.kag.layer.showEventLayer();
         this.playVideo(pm);
@@ -597,6 +689,7 @@
     };
   })();
 
+  compat.installErrorCapture();
   compat.ensureGestureListeners();
   window.__TF_IOS_COMPAT = compat;
 })(window, document, window.jQuery);

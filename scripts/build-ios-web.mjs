@@ -10,6 +10,8 @@ const skipTranscode = process.argv.includes("--skip-transcode");
 const keepSourceMedia = process.argv.includes("--keep-source-media");
 const concurrency = Math.max(2, Math.min(os.cpus().length, 6));
 const copyEntries = ["data", "tyrano", "index.html"];
+const excludedRuntimeNames = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
+const excludedRuntimeExtensions = new Set([".psd", ".psb", ".lnk", ".db"]);
 
 async function main() {
   await rm(distDir, { recursive: true, force: true });
@@ -22,6 +24,7 @@ async function main() {
     });
   }
 
+  const prunedFiles = await pruneNonRuntimeFiles(webDir);
   const mediaFiles = await collectMediaFiles(path.join(webDir, "data"));
   const audioJobs = mediaFiles.audio.map((sourcePath) => ({
     kind: "audio",
@@ -61,8 +64,10 @@ async function main() {
         keepSourceMedia,
         counts: {
           audio: audioJobs.length,
-          video: videoJobs.length
+          video: videoJobs.length,
+          prunedFiles: prunedFiles.count
         },
+        prunedFiles,
         verification
       },
       null,
@@ -76,9 +81,71 @@ async function main() {
       `Prepared iOS web bundle at ${webDir}`,
       `Audio files: ${audioJobs.length}`,
       `Video files: ${videoJobs.length}`,
+      `Pruned non-runtime files: ${prunedFiles.count} (${formatBytes(prunedFiles.bytes)})`,
       skipTranscode ? "Transcode skipped." : "Transcode complete."
     ].join("\n")
   );
+}
+
+async function pruneNonRuntimeFiles(startDir) {
+  const removed = [];
+  let bytes = 0;
+
+  async function walk(currentDir) {
+    const entries = await readdir(currentDir, { withFileTypes: true });
+
+    await Promise.all(
+      entries.map(async (entry) => {
+        const absolutePath = path.join(currentDir, entry.name);
+
+        if (entry.isDirectory()) {
+          await walk(absolutePath);
+          return;
+        }
+
+        if (!shouldPruneFile(entry.name)) {
+          return;
+        }
+
+        const fileStat = await stat(absolutePath).catch(() => null);
+        await unlink(absolutePath).catch(() => {});
+
+        if (fileStat) {
+          bytes += fileStat.size;
+        }
+
+        removed.push(path.relative(rootDir, absolutePath));
+      })
+    );
+  }
+
+  await walk(startDir);
+
+  return {
+    count: removed.length,
+    bytes,
+    examples: removed.slice(0, 20)
+  };
+}
+
+function shouldPruneFile(fileName) {
+  return excludedRuntimeNames.has(fileName) || excludedRuntimeExtensions.has(path.extname(fileName).toLowerCase());
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 async function collectMediaFiles(startDir) {
