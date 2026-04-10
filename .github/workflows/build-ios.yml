@@ -194,6 +194,15 @@ jobs:
           name: ios-web-bundle
           path: dist/web
 
+      - name: Inspect build inputs
+        run: |
+          set -euxo pipefail
+          ls -la
+          ls -la dist
+          ls -la dist/web | head -n 50
+          ls -la ios
+          ls -la ios/App
+
       - name: Create Capacitor iOS project
         run: |
           if [ ! -d ios/App ]; then
@@ -202,8 +211,18 @@ jobs:
 
       - name: Copy Capacitor web assets
         run: |
+          set -euxo pipefail
           rm -rf ios/App/App/public
-          npx cap copy ios
+          mkdir -p build
+          npx cap copy ios --verbose 2>&1 | tee build/ios-cap-copy.log
+
+      - name: Upload cap copy log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-cap-copy-log
+          path: build/ios-cap-copy.log
+          if-no-files-found: warn
 
       - name: Build simulator app
         run: |
@@ -296,8 +315,18 @@ jobs:
       - name: Copy Capacitor web assets
         if: steps.check_signing.outputs.ready == 'true'
         run: |
+          set -euxo pipefail
           rm -rf ios/App/App/public
-          npx cap copy ios
+          mkdir -p build
+          npx cap copy ios --verbose 2>&1 | tee build/ios-cap-copy.log
+
+      - name: Upload cap copy log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-cap-copy-log
+          path: build/ios-cap-copy.log
+          if-no-files-found: warn
 
       - name: Install signing assets
         if: steps.check_signing.outputs.ready == 'true'
